@@ -1,5 +1,5 @@
 <!DOCTYPE CrossStudio_Project_File>
-<solution Name="projects-calibration" target="8" version="2">
+<solution Name="calibration" target="8" version="2">
   <project Name="calibration">
     <configuration
       Name="Common"
