@@ -1,0 +1,52 @@
+[build-system]
+requires = [
+    "hatchling>=1.4.1",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "dotbot-lh2-calibration"
+version = "0.1.0"
+authors = [
+    { name="Alexandre Abadie", email="alexandre.abadie@inria.fr" },
+]
+dependencies = [
+    "click          >= 8.1.7",
+    "numpy          >= 2.1.1",
+    "opencv-python  >= 4.12.0.88",
+    "pydotbot       >= 0.26.0",
+]
+description = "Tools to calibrate Lighthouse localization for the DotBots."
+readme = "README.md"
+license = { text="BSD" }
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/DotBots/dotbot-lh2-calibration"
+"Bug Tracker" = "https://github.com/DotBots/dotbot-lh2-calibration/issues"
+
+[project.scripts]
+dotbot-controller = "dotbot_lh2.calibration:main"
+dotbot-calibration-exporter = "dotbot_lh2.calibration_exporter:main"
+
+[tool.ruff]
+lint.select = ["E", "F"]
+line-length = 88
+lint.ignore = ["E501", "E722"]
+exclude = ["dotbot-libs"]
+
+[tool.isort]
+multi_line_output = 3  # Use Vertical Hanging Indent
+profile = "black"
+
+[tool.black]
+line-length = 79
+skip-string-normalization = true
+exclude = "dotbot-libs"
