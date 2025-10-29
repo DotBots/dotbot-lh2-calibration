@@ -20,7 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from dotbot.protocol import PayloadLh2CalibrationHomography
+from dotbot_utils.protocol import PayloadFieldMetadata, Payload
 
 
 REFERENCE_POINTS_DEFAULT = [
@@ -30,26 +30,6 @@ REFERENCE_POINTS_DEFAULT = [
     [0.1, -0.1],
 ]
 CALIBRATION_DIR = Path.home() / ".dotbot"
-
-
-@dataclass
-class PayloadFieldMetadata:
-    """Data class that describes a packet field metadata."""
-
-    name: str = ""
-    disp: str = ""
-    length: int = 1
-    signed: bool = False
-    type_: typing.Any = int
-
-    def __post_init__(self):
-        if not self.disp:
-            self.disp = self.name
-
-
-@dataclass
-class Payload(ABC):
-    """Base class for packet classes."""
 
 
 @dataclass

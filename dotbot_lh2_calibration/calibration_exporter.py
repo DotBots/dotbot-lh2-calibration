@@ -11,8 +11,7 @@ from pathlib import Path
 import click
 import structlog
 
-from dotbot_lh2_calibration.lighthouse2 import LighthouseManager
-from dotbot.protocol import PayloadLh2CalibrationHomography
+from dotbot_lh2_calibration.lighthouse2 import LighthouseManager, PayloadLh2CalibrationHomography
 
 CALIBRATION_HEADER_FILENAME = Path("lh2_calibration.h")
 CALIBRATION_HEADER_HEADER = """// Auto-generated file, do not edit!
