@@ -18,8 +18,8 @@
 
 #define DB_BUFFER_MAX_BYTES     (128U)          ///< max bytes in data buffer
 #define DB_UART_INDEX           (0U)            ///< UART index
-#define DB_UART_BAUDRATE        (1000000U)      ///< UART baudrate
-#define DB_LH2_UPDATE_DELAY_MS  (100U)          ///< 100ms delay between each LH2 data refresh
+#define DB_UART_BAUDRATE        (115200U)       ///< UART baudrate
+#define DB_LH2_UPDATE_DELAY_MS  (500U)          ///< 100ms delay between each LH2 data refresh
 #define TIMER_DEV               (1)
 
 typedef struct {
@@ -47,7 +47,7 @@ int main(void) {
     db_uart_init(DB_UART_INDEX, &db_uart_rx, &db_uart_tx, DB_UART_BAUDRATE, NULL);
 
     db_timer_init(TIMER_DEV);
-    db_timer_set_periodic_ms(TIMER_DEV, 0, 5 * DB_LH2_UPDATE_DELAY_MS, &_update_lh2);
+    db_timer_set_periodic_ms(TIMER_DEV, 0, DB_LH2_UPDATE_DELAY_MS, &_update_lh2);
 
     while (1) {
         __WFE();
@@ -59,18 +59,18 @@ int main(void) {
             if (_app_vars.lh2.data_ready[0][0] == DB_LH2_PROCESSED_DATA_AVAILABLE && _app_vars.lh2.data_ready[1][0] == DB_LH2_PROCESSED_DATA_AVAILABLE) {
                 db_lh2_stop();
                 size_t length = 0;
-                _app_vars.data_buffer[length++] = LH2_SWEEP_COUNT;
-                // Add the LH2 sweep
                 for (uint8_t lh2_sweep_index = 0; lh2_sweep_index < LH2_SWEEP_COUNT; lh2_sweep_index++) {
-                    memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.raw_data[lh2_sweep_index][0], sizeof(db_lh2_raw_data_t));
-                    length += sizeof(db_lh2_raw_data_t);
+                    memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.locations[lh2_sweep_index][0].lfsr_counts, sizeof(uint32_t));
+                    length += sizeof(uint32_t);
+                    memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.locations[lh2_sweep_index][0].selected_polynomial, sizeof(uint32_t));
+                    length += sizeof(uint32_t);
                     _app_vars.lh2.data_ready[lh2_sweep_index][0] = DB_LH2_NO_NEW_DATA;
                 }
 
                 // Send the data over UART using HDLC framing
                 size_t frame_len = db_hdlc_encode(_app_vars.data_buffer, length, _app_vars.hdlc_buffer);
-                db_lh2_start();
                 db_uart_write(DB_UART_INDEX, _app_vars.hdlc_buffer, frame_len);
+                db_lh2_start();
             }
             _app_vars.update_lh2 = false;
         }

@@ -8,32 +8,21 @@
 
 # pylint: disable=invalid-name,unspecified-encoding,no-member
 
+import dataclasses
 import math
 import os
 import pickle
-import sys
-from ctypes import CDLL
+import typing
+from abc import ABC
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 import cv2
 import numpy as np
 
-from dotbot.logger import LOGGER
-from dotbot.models import DotBotCalibrationStateModel
-from dotbot.protocol import PayloadLh2CalibrationHomography, PayloadLh2RawData
+from dotbot.protocol import PayloadLh2CalibrationHomography
 
-if sys.platform == "win32":
-    LIB_EXT = "dll"
-elif sys.platform == "darwin":
-    LIB_EXT = "dylib"
-else:
-    LIB_EXT = "so"
 
-LH2_LIB_PATH = os.path.join(os.path.dirname(__file__), "lib", f"lh2.{LIB_EXT}")
-LH2_LIB = CDLL(LH2_LIB_PATH)
 REFERENCE_POINTS_DEFAULT = [
     [-0.1, 0.1],
     [0.1, 0.1],
@@ -43,32 +32,40 @@ REFERENCE_POINTS_DEFAULT = [
 CALIBRATION_DIR = Path.home() / ".dotbot"
 
 
-def _lh2_raw_data_to_counts(
-    raw_data: PayloadLh2RawData, func: callable
-) -> List[int]:
-    counts = [0] * 2
-    pos_A = 0
-    pos_B = 0
-    for i in range(2):
-        index = 0
-        if raw_data.locations[i].polynomial_index in [0, 1]:
-            index = pos_A
-            pos_A += 1
-        elif raw_data.locations[i].polynomial_index in [0, 1]:
-            index = 2 + pos_B
-            pos_B += 1
-        if index > 1:
-            continue
-        counts[index] = func(
-            raw_data.locations[i].polynomial_index,
-            raw_data.locations[i].bits >> (47 - raw_data.locations[i].offset),
-        )
-    return counts
+@dataclass
+class PayloadFieldMetadata:
+    """Data class that describes a packet field metadata."""
+
+    name: str = ""
+    disp: str = ""
+    length: int = 1
+    signed: bool = False
+    type_: typing.Any = int
+
+    def __post_init__(self):
+        if not self.disp:
+            self.disp = self.name
 
 
-def lh2_raw_data_to_counts(raw_data: PayloadLh2RawData) -> List[int]:
-    """Convert bits sequence to an array of counts."""
-    return _lh2_raw_data_to_counts(raw_data, LH2_LIB.reverse_count_p)
+@dataclass
+class Payload(ABC):
+    """Base class for packet classes."""
+
+
+@dataclass
+class PayloadLh2CalibrationHomography(Payload):
+    """Dataclass that holds computed LH2 homography for a basestation indicated by index."""
+
+    metadata: list[PayloadFieldMetadata] = dataclasses.field(
+        default_factory=lambda: [
+            PayloadFieldMetadata(name="index", disp="idx"),
+            PayloadFieldMetadata(
+                name="homography_matrix", disp="mat.", type_=bytes, length=36
+            ),
+        ]
+    )
+    index: int = 0
+    homography_matrix: bytes = dataclasses.field(default_factory=lambda: bytearray)
 
 
 def calculate_camera_point(count1, count2, poly_in):
@@ -100,6 +97,16 @@ def _unitize(x_in, y_in):
 
 
 @dataclass
+class LH2Location:
+    """Class that stores LH2 counts."""
+
+    count1: int
+    polynomial_index1: int
+    count2: int
+    polynomial_index2: int
+
+
+@dataclass
 class CalibrationData:
     """Class that stores calibration data."""
 
@@ -109,100 +116,55 @@ class CalibrationData:
     m: np.array
 
 
-class LighthouseManagerState(Enum):
-    """Enum for lighthouse manager internal state."""
-
-    NotCalibrated = 0
-    CalibrationInProgress = 1
-    Ready = 2
-    Calibrated = 3
-
-
 class LighthouseManager:
     """Class to manage the LightHouse positionning state and workflow."""
 
     def __init__(self):
-        self.logger = LOGGER.bind(context=__name__)
-        self.state = LighthouseManagerState.NotCalibrated
-        self.reference_points = REFERENCE_POINTS_DEFAULT
         Path.mkdir(CALIBRATION_DIR, exist_ok=True)
         self.calibration_output_path = CALIBRATION_DIR / "calibration.out"
-        self.calibration: PayloadLh2CalibrationHomography = (
-            self._load_calibration()
-        )
         self.calibration_points = np.zeros(
-            (2, len(self.reference_points), 2), dtype=np.float64
+            (2, len(REFERENCE_POINTS_DEFAULT), 2), dtype=np.float64
         )
         self.calibration_points_available = [False] * len(
-            self.reference_points
+            REFERENCE_POINTS_DEFAULT
         )
-        self.last_raw_data = None
-        self.logger.info("Lighthouse initialized")
+        self.last_location = None
 
-    @property
-    def state_model(self) -> DotBotCalibrationStateModel:
-        """Return the state as pydantic model."""
-        if self.state == LighthouseManagerState.CalibrationInProgress:
-            return DotBotCalibrationStateModel(state="running")
-        if self.state == LighthouseManagerState.Ready:
-            return DotBotCalibrationStateModel(state="ready")
-        if self.state == LighthouseManagerState.Calibrated:
-            return DotBotCalibrationStateModel(state="done")
-        return DotBotCalibrationStateModel(state="unknown")
-
-    def _load_calibration(self) -> Optional[PayloadLh2CalibrationHomography]:
-        if not os.path.exists(self.calibration_output_path):
-            self.logger.info("No calibration file found")
-            return None
-        with open(self.calibration_output_path, "rb") as calibration_file:
-            calibration = pickle.load(calibration_file)
-        self.logger.info("Lighthouse calibration loaded")
-        self.state = LighthouseManagerState.Calibrated
-        return calibration
-
-    def add_calibration_point(self, index):
+    def add_calibration_point(self, index) -> bool:
         """Register a new camera points for calibration."""
-        if self.last_raw_data is None:
-            self.logger.warning("Missing raw data", index=index)
-            return
+        if self.last_location is None:
+            return False
 
         self.calibration_points_available[index] = True
-
-        counts = lh2_raw_data_to_counts(self.last_raw_data)
         self.calibration_points[0][index] = np.asarray(
             calculate_camera_point(
-                counts[0],
-                counts[1],
-                self.last_raw_data.locations[0].polynomial_index,
+                self.last_location.count1,
+                self.last_location.count2,
+                self.last_location.polynomial_index1,
             ),
             dtype=np.float64,
         )
         self.calibration_points[1][index] = np.asarray(
             calculate_camera_point(
-                counts[0],
-                counts[1],
-                self.last_raw_data.locations[1].polynomial_index,
+                self.last_location.count1,
+                self.last_location.count2,
+                self.last_location.polynomial_index2,
             ),
             dtype=np.float64,
         )
+        self.last_location: LH2Location = None
+        return True
 
-        self.last_raw_data: PayloadLh2RawData = None
-        if all(self.calibration_points_available) is False:
-            self.state = LighthouseManagerState.CalibrationInProgress
-        if all(self.calibration_points_available) is True:
-            self.state = LighthouseManagerState.Ready
-        self.logger.info(
-            "Calibration point added", index=index, state=self.state
-        )
+    def load_calibration(self) -> PayloadLh2CalibrationHomography:
+        if not os.path.exists(self.calibration_output_path):
+            self.logger.info("No calibration file found")
+            return None
+        with open(self.calibration_output_path, "rb") as calibration_file:
+            calibration = pickle.load(calibration_file)
+        return calibration
 
-    def compute_calibration(self):  # pylint: disable=too-many-locals
+    def compute_calibration(self) -> bool:  # pylint: disable=too-many-locals
         """Compute the calibration values and matrices."""
-        if self.state != LighthouseManagerState.Ready:
-            self.logger.warning("Not ready, skipping calibration")
-            return
-
-        self.logger.info("Calibrating", points=self.calibration_points)
-
         camera_points = [[], []]
         for data in self.calibration_points[0]:
             camera_points[0].append(data)
@@ -215,6 +177,9 @@ class LighthouseManager:
             method=cv2.RANSAC,
             ransacReprojThreshold=0.001,
         )[0]
+        
+        if homography_mat is None:
+            raise ValueError("Homography matrix could not be computed.")
 
         _, S, V = np.linalg.svd(homography_mat)
         V = V.T
@@ -257,7 +222,7 @@ class LighthouseManager:
         final_points = final_points.T
 
         temporary_numpy_trash_heap = (
-            np.array([self.reference_points], dtype=np.float64) + 0.5
+            np.array([REFERENCE_POINTS_DEFAULT], dtype=np.float64) + 0.5
         )
         temporary_numpy_trash_heap_pt2 = temporary_numpy_trash_heap.squeeze()
 
@@ -277,14 +242,11 @@ class LighthouseManager:
             matrix_bytes += bytes_block
 
         # Prepare homography matrix and send it to the robot
-        self.calibration = PayloadLh2CalibrationHomography(
+        calibration = PayloadLh2CalibrationHomography(
             index=0,
             homography_matrix=matrix_bytes,
         )
 
         # Store calibration data as pickle for later reload
         with open(self.calibration_output_path, "wb") as output_file:
-            pickle.dump(self.calibration, output_file)
-
-        self.state = LighthouseManagerState.Calibrated
-        self.logger.info("Calibration done", data=self.calibration)
+            pickle.dump(calibration, output_file)

@@ -1,0 +1,72 @@
+Screen {
+    layout: vertical;
+    align: center middle;
+    padding: 0;
+}
+
+#calibration-controls {
+    layout: horizontal;
+    align: center middle;
+    height: 15;
+    width: 100%;
+}
+
+#calibration-point-controls {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 50%;
+    border: round cyan;
+}
+
+#point-buttons-top {
+    align: center middle;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#point-buttons-bottom {
+    align: center middle;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#calibration-logs {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 50%;
+    border: round green;
+}
+
+Button {
+    min-width: 20;
+    min-height: 5;
+}
+
+#exit-btn {
+    min-height: 3;
+}
+
+#save-btn {
+    margin-left: 2;
+    margin-right: 2;
+    min-height: 3;
+}
+
+#reset-btn {
+    margin-left: 2;
+    margin-right: 2;
+    min-height: 3;
+}
+
+.point-btn {
+    margin: 1;
+    width: 20%;
+}
+
+RichLog {
+    height: 100%;
+    width: 100%;
+    margin-left: 1;
+}

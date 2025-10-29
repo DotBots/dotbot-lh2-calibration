@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 import structlog
 
-from dotbot.lighthouse2 import LighthouseManager, LighthouseManagerState
+from dotbot_lh2_calibration.lighthouse2 import LighthouseManager
 from dotbot.protocol import PayloadLh2CalibrationHomography
 
 CALIBRATION_HEADER_FILENAME = Path("lh2_calibration.h")
@@ -63,12 +63,13 @@ def main(output_path):
         sys.exit(1)
 
     lh2_manager = LighthouseManager()
-    if lh2_manager.state != LighthouseManagerState.Calibrated:
-        print("Error: LighthouseManager is not calibrated.", file=sys.stderr)
+    if not os.path.exists(lh2_manager.calibration_output_path):
+        print("Error: Lighthouse is not calibrated.", file=sys.stderr)
         sys.exit(1)
 
+    calibration = lh2_manager.load_calibration()
     try:
-        output = export_calibration(lh2_manager.calibration)
+        output = export_calibration(calibration)
         header_path = Path(output_path) / CALIBRATION_HEADER_FILENAME
         with open(header_path, "w") as header_file:
             header_file.write(output)

@@ -68,5 +68,5 @@ Output/
 # Git conflict files
 *.orig
 
-# artifacts
-artifacts/
+# Python
+*.pyc
