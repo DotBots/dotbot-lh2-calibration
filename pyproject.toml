@@ -4,6 +4,12 @@ requires = [
 ]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+include = [
+    "*.py",
+    "*.tcss"
+]
+
 [project]
 name = "dotbot-lh2-calibration"
 version = "0.1.0"

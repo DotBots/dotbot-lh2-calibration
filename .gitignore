@@ -70,3 +70,4 @@ Output/
 
 # Python
 *.pyc
+dist/
