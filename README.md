@@ -23,7 +23,9 @@ Clone the repository using Git:
 git clone https://github.com/DotBots/dotbot-lh2-calibration.git
 ```
 
-## Build the calibration firmware
+## Usage
+
+# Build the calibration firmware
 
 The source code of calibration firmware is available in the
 [calibration](calibration) directory and can be built using
@@ -35,6 +37,26 @@ CMSIS-DSP and nRF packages.
 
 For details on SEGGER Embedded Studio, read the
 [online documentation](https://studio.segger.com/index.htm?https://studio.segger.com/home.htm).
+
+Flash the firmware on the robot.
+
+# Calibration script
+
+The calibration script is a Terminal User Interface application that connects
+to the serial port (at 115200 bauds) of the robot to collect the Lighthouse
+raw data.
+
+Run the script as follows:
+
+```
+dotbot-calibration
+```
+
+Place the robot on the ground on the calibration points and in the UI, press
+the corresponding buttons.
+Once all 4 calibration points are checked, you can save the calibration.
+
+The calibration file is stored in `~/.dotbot/calibration.out`.
 
 ## License
 
