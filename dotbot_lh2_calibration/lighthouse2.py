@@ -11,16 +11,11 @@
 import dataclasses
 import math
 import os
-import pickle
-import typing
-from abc import ABC
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
-
-from dotbot_utils.protocol import PayloadFieldMetadata, Payload
 
 
 REFERENCE_POINTS_DEFAULT = [
@@ -33,17 +28,9 @@ CALIBRATION_DIR = Path.home() / ".dotbot"
 
 
 @dataclass
-class PayloadLh2CalibrationHomography(Payload):
+class PayloadLh2CalibrationHomography:
     """Dataclass that holds computed LH2 homography for a basestation indicated by index."""
 
-    metadata: list[PayloadFieldMetadata] = dataclasses.field(
-        default_factory=lambda: [
-            PayloadFieldMetadata(name="index", disp="idx"),
-            PayloadFieldMetadata(
-                name="homography_matrix", disp="mat.", type_=bytes, length=36
-            ),
-        ]
-    )
     index: int = 0
     homography_matrix: bytes = dataclasses.field(default_factory=lambda: bytearray)
 
@@ -137,11 +124,13 @@ class LighthouseManager:
 
     def load_calibration(self) -> PayloadLh2CalibrationHomography:
         if not os.path.exists(self.calibration_output_path):
-            self.logger.info("No calibration file found")
             return None
         with open(self.calibration_output_path, "rb") as calibration_file:
-            calibration = pickle.load(calibration_file)
-        return calibration
+            index = int.from_bytes(calibration_file.read(4), "little", signed=False)
+            homography_matrix = calibration_file.read(36)
+        return PayloadLh2CalibrationHomography(
+            index=index, homography_matrix=homography_matrix
+        )
 
     def compute_calibration(self) -> bool:  # pylint: disable=too-many-locals
         """Compute the calibration values and matrices."""
@@ -221,12 +210,7 @@ class LighthouseManager:
         ]:
             matrix_bytes += bytes_block
 
-        # Prepare homography matrix and send it to the robot
-        calibration = PayloadLh2CalibrationHomography(
-            index=0,
-            homography_matrix=matrix_bytes,
-        )
-
         # Store calibration data as pickle for later reload
         with open(self.calibration_output_path, "wb") as output_file:
-            pickle.dump(calibration, output_file)
+            output_file.write(int(0).to_bytes(4, "little", signed=False))
+            output_file.write(matrix_bytes)
