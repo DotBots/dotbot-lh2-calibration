@@ -16,11 +16,14 @@ import serial
 import structlog
 import logging
 
+from serial.tools import list_ports
+
 from dotbot_lh2_calibration.calibration_app import CalibrationApp
+
 
 def get_default_port():
     """Return default serial port."""
-    ports = [port for port in serial.tools.list_ports.comports()]
+    ports = [port for port in list_ports.comports()]
     if sys.platform != "win32":
         ports = sorted([port for port in ports])
     if not ports:

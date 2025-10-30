@@ -7,7 +7,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, RichLog, Header, Label
 
-from dotbot.hdlc import HDLCState, HDLCHandler
+from dotbot_utils.hdlc import HDLCState, HDLCHandler
 
 from dotbot_lh2_calibration.lighthouse2 import LighthouseManager, LH2Location
 
