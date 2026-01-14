@@ -17,30 +17,64 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
 REFERENCE_POINTS_DEFAULT = [
-    [-0.1, 0.1],
-    [0.1, 0.1],
-    [-0.1, -0.1],
-    [0.1, -0.1],
+    [0.4, 0.6],
+    [0.6, 0.6],
+    [0.4, 0.4],
+    [0.6, 0.4],
 ]
 CALIBRATION_DIR = Path.home() / ".dotbot"
 
 
+LH_PERIODS = [
+    959000,  # mode 1
+    957000,  # mode 2
+    953000,  # mode 3
+    949000,  # mode 4
+    947000,  # mode 5
+    943000,  # mode 6
+    941000,  # mode 7
+    939000,  # mode 8
+    937000,  # mode 9
+    929000,  # mode 10
+    919000,  # mode 11
+    911000,  # mode 12
+    907000,  # mode 13
+    901900,  # mode 14
+    893000,  # mode 15
+    887000,  # mode 16
+]
+
+
 @dataclass
-class PayloadLh2CalibrationHomography:
+class LH2Homography:
     """Dataclass that holds computed LH2 homography for a basestation indicated by index."""
 
-    index: int = 0
-    homography_matrix: bytes = dataclasses.field(default_factory=lambda: bytearray)
+    matrix: np.ndarray = dataclasses.field(
+        default_factory=lambda: np.zeros((3, 3), dtype=np.float64)
+    )
+
+
+@dataclass
+class LH2Counts:
+    """Class that stores LH2 counts."""
+
+    polynomial_index: int
+    count1: int
+    count2: int
+
+
+@dataclasses.dataclass
+class LH2CountsPair:
+    """Pair of LH2 counts."""
+
+    ref_counts: LH2Counts
+    new_counts: LH2Counts
 
 
 def calculate_camera_point(count1, count2, poly_in):
     """Calculate camera points from counts."""
-    if poly_in < 2:
-        period = 959000
-    if poly_in > 1:
-        period = 957000
+    period = LH_PERIODS[poly_in]
 
     a1 = (count1 * 8 / period) * 2 * math.pi
     a2 = (count2 * 8 / period) * 2 * math.pi
@@ -58,159 +92,144 @@ def calculate_camera_point(count1, count2, poly_in):
     return cam_x, cam_y
 
 
-def _unitize(x_in, y_in):
-    magnitude = np.sqrt(x_in**2 + y_in**2)
-    return x_in / magnitude, y_in / magnitude
+def camera_points_from_counts(counts: list[LH2Counts]) -> np.ndarray:
+    """Convert counts to camera points."""
+    camera_points = np.zeros((len(counts), 2), dtype=np.float64)
+    for index, count in enumerate(counts):
+        camera_points[index] = np.asarray(
+            calculate_camera_point(
+                count.count1,
+                count.count2,
+                count.polynomial_index,
+            ),
+            dtype=np.float64,
+        )
+    return camera_points
 
 
-@dataclass
-class LH2Location:
-    """Class that stores LH2 counts."""
+def compute_homography_matrix(
+    camera_points: np.ndarray,
+    reference_points: np.ndarray,
+) -> np.ndarray:
+    """Compute homography matrix from camera points to reference points."""
+    M, _ = cv2.findHomography(
+        camera_points,
+        reference_points,
+        method=cv2.RANSAC,
+        ransacReprojThreshold=0.001,
+    )
 
-    count1: int
-    polynomial_index1: int
-    count2: int
-    polynomial_index2: int
+    if M is None:
+        raise ValueError("Homography computation failed.")
+
+    return M
 
 
-@dataclass
-class CalibrationData:
-    """Class that stores calibration data."""
-
-    zeta: float
-    random_rodriguez: np.array
-    normal: np.array
-    m: np.array
+def homography_as_bytes(matrix: np.ndarray) -> bytes:
+    """Convert homography matrix to bytes."""
+    matrix_bytes = bytearray()
+    try:
+        for bytes_block in [
+            int(n * 1e6).to_bytes(4, "little", signed=True)
+            for n in matrix.ravel()
+        ]:
+            matrix_bytes += bytes_block
+    except:
+        matrix_bytes = bytearray(36)
+    return matrix_bytes
 
 
 class LighthouseManager:
     """Class to manage the LightHouse positionning state and workflow."""
 
-    def __init__(self):
+    def __init__(self, extra_lh_num: int = 0):
         Path.mkdir(CALIBRATION_DIR, exist_ok=True)
         self.calibration_output_path = CALIBRATION_DIR / "calibration.out"
-        self.calibration_points = np.zeros(
-            (2, len(REFERENCE_POINTS_DEFAULT), 2), dtype=np.float64
+        self.extra_lh_num = extra_lh_num
+        self.homographies: list[LH2Homography] = [LH2Homography()] * (
+            1 + self.extra_lh_num
         )
-        self.calibration_points_available = [False] * len(
-            REFERENCE_POINTS_DEFAULT
-        )
-        self.last_location = None
 
-    def add_calibration_point(self, index) -> bool:
-        """Register a new camera points for calibration."""
-        if self.last_location is None:
-            return False
+    def _compute_reference_homography(
+        self, calibration_counts: list[LH2Counts]
+    ) -> LH2Homography:
+        """Compute the reference calibration values and matrices."""
+        # Convert reference counts to camera view points
+        camera_points = camera_points_from_counts(calibration_counts)
 
-        self.calibration_points_available[index] = True
-        self.calibration_points[0][index] = np.asarray(
-            calculate_camera_point(
-                self.last_location.count1,
-                self.last_location.count2,
-                self.last_location.polynomial_index1,
-            ),
-            dtype=np.float64,
+        # Compute homography from camera points to ground plane coordinates
+        homography = compute_homography_matrix(
+            camera_points,
+            np.array([REFERENCE_POINTS_DEFAULT], dtype=np.float64),
         )
-        self.calibration_points[1][index] = np.asarray(
-            calculate_camera_point(
-                self.last_location.count1,
-                self.last_location.count2,
-                self.last_location.polynomial_index2,
-            ),
-            dtype=np.float64,
-        )
-        self.last_location: LH2Location = None
-        return True
 
-    def load_calibration(self) -> PayloadLh2CalibrationHomography:
+        return LH2Homography(matrix=homography)
+
+    def _compute_extra_calibration(
+        self, counts_pairs: list[LH2CountsPair]
+    ) -> LH2Homography:
+        """Compute the extra lighthouse calibration values and matrices."""
+
+        # Convert reference counts to camera points
+        ref_camera_points = camera_points_from_counts(
+            [pair.ref_counts for pair in counts_pairs]
+        )
+
+        # Convert to homogeneous coordinates
+        zeros = np.zeros((ref_camera_points.shape[0], 1), dtype=np.float64)
+        ref_camera_points = np.hstack((ref_camera_points, zeros))
+
+        # Convert reference camera points to ground plane coordinates using reference homography
+        ref_coordinates = np.matmul(
+            self.homographies[0].matrix,
+            ref_camera_points.T,
+        )
+        ref_coordinates.T[:, 2] = 0
+
+        # Convert new camera points from new LH counts
+        new_camera_points = camera_points_from_counts(
+            [pair.new_counts for pair in counts_pairs]
+        )
+
+        # Convert to homogeneous coordinates
+        new_camera_points = np.hstack((new_camera_points, zeros))
+
+        # Compute homography from new camera points to ground plane coordinates
+        homography = compute_homography_matrix(
+            new_camera_points,
+            ref_coordinates.T,
+        )
+
+        return LH2Homography(matrix=homography)
+
+    def compute_calibration(
+        self,
+        calibration_counts: list[LH2Counts],
+        extra_lh_counts_pairs: list[list[LH2CountsPair]],
+    ) -> list[LH2Homography]:
+        """Compute the calibration values and matrices."""
+        self.homographies[0] = self._compute_reference_homography(
+            calibration_counts
+        )
+        for lh_index, counts_pairs in enumerate(
+            extra_lh_counts_pairs, start=1
+        ):
+            self.homographies[lh_index] = self._compute_extra_calibration(
+                counts_pairs
+            )
+
+    def load_calibration(self) -> bytes:
         if not os.path.exists(self.calibration_output_path):
             return None
         with open(self.calibration_output_path, "rb") as calibration_file:
-            index = int.from_bytes(calibration_file.read(4), "little", signed=False)
             homography_matrix = calibration_file.read(36)
-        return PayloadLh2CalibrationHomography(
-            index=index, homography_matrix=homography_matrix
-        )
+        return homography_matrix
 
-    def compute_calibration(self) -> bool:  # pylint: disable=too-many-locals
-        """Compute the calibration values and matrices."""
-        camera_points = [[], []]
-        for data in self.calibration_points[0]:
-            camera_points[0].append(data)
-        for data in self.calibration_points[1]:
-            camera_points[1].append(data)
-        camera_points_arr = np.asarray(camera_points, dtype=np.float64)
-        homography_mat = cv2.findHomography(
-            camera_points_arr[0][0 : len(camera_points[0])][:],
-            camera_points_arr[1][0 : len(camera_points[1])][:],
-            method=cv2.RANSAC,
-            ransacReprojThreshold=0.001,
-        )[0]
-        
-        if homography_mat is None:
-            raise ValueError("Homography matrix could not be computed.")
-
-        _, S, V = np.linalg.svd(homography_mat)
-        V = V.T
-
-        s1 = S[0] / S[1]
-        s3 = S[2] / S[1]
-        zeta = s1 - s3
-        a1 = np.sqrt(1 - s3**2)
-        b1 = np.sqrt(s1**2 - 1)
-        a, b = _unitize(a1, b1)
-        v1 = np.array(V[:, 0])
-        v3 = np.array(V[:, 2])
-        n = b * v1 + a * v3
-
-        if n[2] < 0:
-            n = -n
-
-        random_rodriguez = np.array(
-            [
-                [
-                    -n[1] / np.sqrt(n[0] * n[0] + n[1] * n[1]),
-                    n[0] / np.sqrt(n[0] * n[0] + n[1] * n[1]),
-                    0,
-                ],
-                [
-                    n[0] * n[2] / np.sqrt(n[0] * n[0] + n[1] * n[1]),
-                    n[1] * n[2] / np.sqrt(n[0] * n[0] + n[1] * n[1]),
-                    -np.sqrt(n[0] * n[0] + n[1] * n[1]),
-                ],
-                [-n[0], -n[1], -n[2]],
-            ]
-        )
-
-        pts_cam_new = np.hstack(
-            (camera_points_arr[1], np.ones((len(camera_points_arr[1]), 1)))
-        )
-        scales = (1 / zeta) / np.matmul(n, pts_cam_new.T)
-        scales_matrix = np.vstack((scales, scales, scales))
-        final_points = scales_matrix * pts_cam_new.T
-        final_points = final_points.T
-
-        temporary_numpy_trash_heap = (
-            np.array([REFERENCE_POINTS_DEFAULT], dtype=np.float64) + 0.5
-        )
-        temporary_numpy_trash_heap_pt2 = temporary_numpy_trash_heap.squeeze()
-
-        M, _ = cv2.findHomography(
-            camera_points_arr[0],
-            temporary_numpy_trash_heap_pt2,
-            method=cv2.RANSAC,
-            ransacReprojThreshold=0.001,
-        )
-
-        calibration_data = CalibrationData(zeta, random_rodriguez, n, M)
-        matrix_bytes = bytearray()
-        for bytes_block in [
-            int(n * 1e6).to_bytes(4, "little", signed=True)
-            for n in calibration_data.m.ravel()
-        ]:
-            matrix_bytes += bytes_block
-
-        # Store calibration data as pickle for later reload
-        with open(self.calibration_output_path, "wb") as output_file:
-            output_file.write(int(0).to_bytes(4, "little", signed=False))
-            output_file.write(matrix_bytes)
+    def save_calibration(self) -> None:
+        """Save the calibration to a file."""
+        with open(self.calibration_output_path, "wb") as calibration_file:
+            for index, homography in enumerate(self.homographies):
+                calibration_file.write(
+                    int(index).to_bytes(4, "little", signed=False)
+                )
+                calibration_file.write(homography_as_bytes(homography.matrix))

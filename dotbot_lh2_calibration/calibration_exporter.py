@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 import structlog
 
-from dotbot_lh2_calibration.lighthouse2 import LighthouseManager, PayloadLh2CalibrationHomography
+from dotbot_lh2_calibration.lighthouse2 import LighthouseManager
 
 CALIBRATION_HEADER_FILENAME = Path("lh2_calibration.h")
 CALIBRATION_HEADER_HEADER = """// Auto-generated file, do not edit!
@@ -31,14 +31,12 @@ CALIBRATION_HEADER_FOOTER = """};
 """
 
 
-def export_calibration(calibration: PayloadLh2CalibrationHomography) -> str:
+def export_calibration(calibration: bytes) -> str:
     """Export the calibration file to a user-defined location."""
     # Store homography matrix as C header to use in SwarmIT bootloader
     output = CALIBRATION_HEADER_HEADER
     matrix_int = [
-        int.from_bytes(
-            calibration.homography_matrix[i : i + 4], "little", signed=True
-        )
+        int.from_bytes(calibration[i : i + 4], "little", signed=True)
         for i in range(0, 36, 4)
     ]
     matrix = [matrix_int[i : i + 3] for i in range(0, 9, 3)]

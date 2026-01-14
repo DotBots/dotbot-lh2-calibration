@@ -4,11 +4,28 @@ Screen {
     padding: 0;
 }
 
+#main-container {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 100%;
+    padding: 0;
+}
+
 #calibration-controls {
     layout: horizontal;
     align: center middle;
-    height: 15;
+    height: 55%;
     width: 100%;
+    margin-bottom: 0;
+}
+
+#extra-lh-calibration-section {
+    layout: horizontal;
+    align: center middle;
+    height: 35%;
+    width: 100%;
+    margin-bottom: 0;
 }
 
 #calibration-point-controls {
@@ -19,19 +36,7 @@ Screen {
     border: round cyan;
 }
 
-#point-buttons-top {
-    align: center middle;
-    padding-top: 0;
-    padding-bottom: 0;
-}
-
-#point-buttons-bottom {
-    align: center middle;
-    padding-top: 0;
-    padding-bottom: 0;
-}
-
-#calibration-logs {
+#serial-logs {
     layout: vertical;
     align: center middle;
     height: 100%;
@@ -39,9 +44,34 @@ Screen {
     border: round green;
 }
 
+#calibration-extra-lh-point-controls {
+    layout: horizontal;
+    align: center middle;
+    height: 100%;
+    width: 50%;
+    border: round cyan;
+}
+
+#calibration-state-info {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 50%;
+    border: round green;
+}
+
+#calibration-point-label {
+    max-height: 1;
+}
+
+.calibration-point-button-group {
+    align: center middle;
+}
+
 Button {
     min-width: 20;
     min-height: 5;
+    max-height: 5;
 }
 
 #exit-btn {
@@ -63,6 +93,11 @@ Button {
 .point-btn {
     margin: 1;
     width: 20%;
+}
+
+.lh-btn {
+    margin: 1;
+    max-width: 30%;
 }
 
 RichLog {
