@@ -56,22 +56,23 @@ int main(void) {
         db_lh2_process_location(&_app_vars.lh2);
 
         if (_app_vars.update_lh2) {
-            if (_app_vars.lh2.data_ready[0][0] == DB_LH2_PROCESSED_DATA_AVAILABLE && _app_vars.lh2.data_ready[1][0] == DB_LH2_PROCESSED_DATA_AVAILABLE) {
-                db_lh2_stop();
-                size_t length = 0;
-                for (uint8_t lh2_sweep_index = 0; lh2_sweep_index < LH2_SWEEP_COUNT; lh2_sweep_index++) {
-                    memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.locations[lh2_sweep_index][0].lfsr_counts, sizeof(uint32_t));
-                    length += sizeof(uint32_t);
-                    memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.locations[lh2_sweep_index][0].selected_polynomial, sizeof(uint32_t));
-                    length += sizeof(uint32_t);
-                    _app_vars.lh2.data_ready[lh2_sweep_index][0] = DB_LH2_NO_NEW_DATA;
-                }
+            db_lh2_stop();
+            for (uint8_t lh_index = 0; lh_index < LH2_BASESTATION_COUNT; lh_index++) {
+                if (_app_vars.lh2.data_ready[0][lh_index] == DB_LH2_PROCESSED_DATA_AVAILABLE && _app_vars.lh2.data_ready[1][lh_index] == DB_LH2_PROCESSED_DATA_AVAILABLE) {
+                    size_t length = 0;
+                    _app_vars.data_buffer[length++] = lh_index;
+                    for (uint8_t lh2_sweep_index = 0; lh2_sweep_index < LH2_SWEEP_COUNT; lh2_sweep_index++) {
+                        memcpy(&_app_vars.data_buffer[length], &_app_vars.lh2.locations[lh2_sweep_index][lh_index].lfsr_counts, sizeof(uint32_t));
+                        length += sizeof(uint32_t);
+                        _app_vars.lh2.data_ready[lh2_sweep_index][lh_index] = DB_LH2_NO_NEW_DATA;
+                    }
 
-                // Send the data over UART using HDLC framing
-                size_t frame_len = db_hdlc_encode(_app_vars.data_buffer, length, _app_vars.hdlc_buffer);
-                db_uart_write(DB_UART_INDEX, _app_vars.hdlc_buffer, frame_len);
-                db_lh2_start();
+                    // Send the data over UART using HDLC framing
+                    size_t frame_len = db_hdlc_encode(_app_vars.data_buffer, length, _app_vars.hdlc_buffer);
+                    db_uart_write(DB_UART_INDEX, _app_vars.hdlc_buffer, frame_len);
+                }
             }
+            db_lh2_start();
             _app_vars.update_lh2 = false;
         }
     }
