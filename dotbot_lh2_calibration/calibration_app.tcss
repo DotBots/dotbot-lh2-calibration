@@ -7,61 +7,86 @@ Screen {
 #main-container {
     layout: vertical;
     align: center middle;
-    height: 100%;
+    height: 35;
     width: 100%;
     padding: 0;
 }
 
-#calibration-controls {
+.calibration-controls {
     layout: horizontal;
     align: center middle;
-    height: 55%;
+    height: 12;
     width: 100%;
     margin-bottom: 0;
 }
 
-#extra-lh-calibration-section {
+.extra-lh-calibration-section {
     layout: horizontal;
     align: center middle;
-    height: 35%;
+    height: 6;
     width: 100%;
-    margin-bottom: 0;
 }
 
-#calibration-point-controls {
+.calibration-point-controls {
     layout: vertical;
     align: center middle;
     height: 100%;
-    width: 50%;
+    width: 40%;
     border: round cyan;
 }
 
-#serial-logs {
-    layout: vertical;
-    align: center middle;
-    height: 100%;
-    width: 50%;
-    border: round green;
-}
-
-#calibration-extra-lh-point-controls {
+.calibration-extra-lh-point-controls {
     layout: horizontal;
     align: center middle;
     height: 100%;
-    width: 50%;
-    border: round cyan;
+    width: 100%;
 }
 
-#calibration-state-info {
+.calibration-extra-lh-container {
     layout: vertical;
     align: center middle;
     height: 100%;
-    width: 50%;
+    width: 40%;
+    border: round cyan;
+}
+
+.calibration-state-info {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 60%;
     border: round green;
 }
 
-#calibration-point-label {
+#data-logs {
+    layout: vertical;
+    align: center middle;
+    height: 100%;
+    width: 60%;
+    border: round green;
+}
+
+#app-logs {
+    layout: vertical;
+    align: center middle;
+    height: 10;
+    width: 100%;
+    border: round green;
+}
+
+.extra-lh-label {
     max-height: 1;
+    margin: 0;
+}
+
+.calibration-label {
+    max-height: 1;
+}
+
+.lh-reference-select{
+    align: center middle;
+    max-width: 25;
+    margin-top: 1;
 }
 
 .calibration-point-button-group {
@@ -71,7 +96,7 @@ Screen {
 Button {
     min-width: 20;
     min-height: 5;
-    max-height: 5;
+    max-height: 3;
 }
 
 #exit-btn {

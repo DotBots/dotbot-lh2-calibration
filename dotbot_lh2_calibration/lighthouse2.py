@@ -59,15 +59,19 @@ class LH2Homography:
 class LH2Counts:
     """Class that stores LH2 counts."""
 
-    polynomial_index: int
+    lh_index: int
     count1: int
     count2: int
+
+    def __repr__(self):
+        return f"{dataclasses.asdict(self)}"
 
 
 @dataclasses.dataclass
 class LH2CountsPair:
     """Pair of LH2 counts."""
 
+    ref_index: int
     ref_counts: LH2Counts
     new_counts: LH2Counts
 
@@ -100,7 +104,7 @@ def camera_points_from_counts(counts: list[LH2Counts]) -> np.ndarray:
             calculate_camera_point(
                 count.count1,
                 count.count2,
-                count.polynomial_index,
+                count.lh_index,
             ),
             dtype=np.float64,
         )
@@ -120,9 +124,24 @@ def compute_homography_matrix(
     )
 
     if M is None:
-        raise ValueError("Homography computation failed.")
+        raise ValueError("No valid homography matrix found.")
 
     return M
+
+
+def apply_homography(
+    homography: np.ndarray, camera_view_points: np.ndarray
+) -> np.ndarray:
+    """Apply homography to camera points."""
+    ground_plane_coordinates = np.zeros((0, 2), dtype=np.float64)
+    for row in camera_view_points:
+        projected = np.dot(homography, np.array([row[0], row[1], 1.0]))
+        projected /= projected[2]
+        ground_plane_coordinates = np.vstack(
+            (ground_plane_coordinates, projected[:2])
+        )
+
+    return ground_plane_coordinates
 
 
 def homography_as_bytes(matrix: np.ndarray) -> bytes:
@@ -160,8 +179,20 @@ class LighthouseManager:
         # Compute homography from camera points to ground plane coordinates
         homography = compute_homography_matrix(
             camera_points,
-            np.array([REFERENCE_POINTS_DEFAULT], dtype=np.float64),
+            np.array(REFERENCE_POINTS_DEFAULT, dtype=np.float64),
         )
+
+        print(f"reference homography: {homography}")
+
+        # Project camera points using computed homography for verification
+        ref_coordinates = apply_homography(homography, camera_points)
+
+        # compare with reference points
+        for i, ref_point in enumerate(REFERENCE_POINTS_DEFAULT):
+            if not np.allclose(ref_coordinates[i], ref_point, atol=1e-3):
+                raise ValueError(
+                    f"Projected point {ref_coordinates[i]} does not match reference point {ref_point}"
+                )
 
         return LH2Homography(matrix=homography)
 
@@ -170,35 +201,39 @@ class LighthouseManager:
     ) -> LH2Homography:
         """Compute the extra lighthouse calibration values and matrices."""
 
+        print(
+            f"ref: {counts_pairs[0].ref_index}, homographies: {self.homographies}"
+        )
+
         # Convert reference counts to camera points
         ref_camera_points = camera_points_from_counts(
             [pair.ref_counts for pair in counts_pairs]
         )
 
-        # Convert to homogeneous coordinates
-        zeros = np.zeros((ref_camera_points.shape[0], 1), dtype=np.float64)
-        ref_camera_points = np.hstack((ref_camera_points, zeros))
+        print(f"ref_camera_points: {ref_camera_points}")
 
         # Convert reference camera points to ground plane coordinates using reference homography
-        ref_coordinates = np.matmul(
-            self.homographies[0].matrix,
-            ref_camera_points.T,
+        ref_coordinates = apply_homography(
+            self.homographies[counts_pairs[0].ref_index].matrix,
+            ref_camera_points,
         )
-        ref_coordinates.T[:, 2] = 0
 
-        # Convert new camera points from new LH counts
+        print(f"ref_coordinates: {ref_coordinates}")
+
+        # Convert new LH counts to new camera points
         new_camera_points = camera_points_from_counts(
             [pair.new_counts for pair in counts_pairs]
         )
 
-        # Convert to homogeneous coordinates
-        new_camera_points = np.hstack((new_camera_points, zeros))
+        print(f"new_camera_points: {new_camera_points}")
 
         # Compute homography from new camera points to ground plane coordinates
         homography = compute_homography_matrix(
             new_camera_points,
-            ref_coordinates.T,
+            ref_coordinates,
         )
+
+        print(f"Computed homography: {homography}")
 
         return LH2Homography(matrix=homography)
 
@@ -211,12 +246,17 @@ class LighthouseManager:
         self.homographies[0] = self._compute_reference_homography(
             calibration_counts
         )
-        for lh_index, counts_pairs in enumerate(
-            extra_lh_counts_pairs, start=1
-        ):
-            self.homographies[lh_index] = self._compute_extra_calibration(
-                counts_pairs
-            )
+
+        print(
+            f"Computing {self.extra_lh_num} extra lighthouse calibrations..."
+        )
+        if self.extra_lh_num > 0:
+            for lh_index, counts_pairs in enumerate(
+                extra_lh_counts_pairs[: self.extra_lh_num]
+            ):
+                self.homographies[lh_index + 1] = (
+                    self._compute_extra_calibration(counts_pairs)
+                )
 
     def load_calibration(self) -> bytes:
         if not os.path.exists(self.calibration_output_path):

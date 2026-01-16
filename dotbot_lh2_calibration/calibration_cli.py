@@ -13,7 +13,6 @@ import sys
 import click
 import serial
 import structlog
-
 from serial.tools import list_ports
 
 from dotbot_lh2_calibration.calibration_app import CalibrationApp
@@ -53,7 +52,7 @@ LH_NUM_DEFAULT = 0
     "-n",
     "--extra-lh-num",
     default=LH_NUM_DEFAULT,
-    type=click.IntRange(min=0, max=3),
+    type=click.IntRange(min=0, max=5),
     help="Extra lighthouse number to calibrate.",
 )
 def main(port, baudrate, extra_lh_num):  # pylint: disable=redefined-builtin
