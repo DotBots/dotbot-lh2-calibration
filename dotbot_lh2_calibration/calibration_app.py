@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import dataclasses
 
 import serial
@@ -13,21 +14,13 @@ from textual.widgets import (
     Select,
     TabbedContent,
     TabPane,
-    Tabs,
 )
 
 from dotbot_lh2_calibration.lighthouse2 import (
+    LH2CalibrationSample,
     LH2Counts,
-    LH2CountsPair,
     LighthouseManager,
 )
-
-TEST_CALIBRATION_COUNTS = [
-    LH2Counts(lh_index=0, count1=37511, count2=71499),
-    LH2Counts(lh_index=0, count1=41045, count2=72179),
-    LH2Counts(lh_index=0, count1=43645, count2=77050),
-    LH2Counts(lh_index=0, count1=40027, count2=75524),
-]
 
 
 @dataclasses.dataclass
@@ -81,32 +74,65 @@ EXTRA_LH_BUTTONS = {
 }
 
 
+def read_calibration_data_from_csv(
+    file_path: str,
+) -> list[LH2CalibrationSample]:
+    """Read calibration data from CSV file."""
+    calibration_samples: list[LH2CalibrationSample] = []
+    with open(file_path, "r") as input_file:
+        reader = csv.DictReader(
+            input_file,
+            quoting=csv.QUOTE_STRINGS,
+            fieldnames=[
+                "lh_index",
+                "count1",
+                "count2",
+                "ref_lh_index",
+                "ref_count1",
+                "ref_count2",
+            ],
+        )
+        for row in reader:
+            calibration_samples.append(LH2CalibrationSample(**row))
+    return calibration_samples
+
+
 class CalibrationApp(App):
     """Calibration application."""
 
     CSS_PATH = "calibration_app.tcss"
 
-    def __init__(self, port, baudrate, extra_lh_num):
+    def __init__(
+        self, port, baudrate, extra_lh_num, output_data=None, input_data=None
+    ):
         super().__init__()
         self.port = port
         self.baudrate = baudrate
         self.extra_lh_num = extra_lh_num
-        self.serial = serial.Serial(self.port, self.baudrate, timeout=0.1)
-        self.serial.flushInput()
+        self.output_data = output_data
+        self.input_data = input_data
+        self.calibration_samples: list[LH2CalibrationSample] = []
+        if self.input_data is not None:
+            self.calibration_samples = read_calibration_data_from_csv(
+                self.input_data
+            )
+        else:
+            self.serial = serial.Serial(self.port, self.baudrate, timeout=0.1)
+            self.serial.flushInput()
+        self.csv_writer = None
+        if self.output_data is not None:
+            output_data_file = open(self.output_data, "w", newline="")
+            self.csv_writer = csv.writer(output_data_file)
+
         self.hdlc_handler = HDLCHandler()
         self.lh2_manager = LighthouseManager(extra_lh_num=self.extra_lh_num)
         self.data_log = None
         self.app_log = None
         self.save_calibration_button = None
         self.last_counts: list[LH2Counts | None] = [None, None, None, None]
-        self.calibration_counts: list[LH2Counts] = [None] * (
-            len(EXTRA_LH_BUTTONS) + 1
-        )
-        self.extra_lh_counts_pairs: list[list[LH2CountsPair]] = [
-            [] for _ in range(len(EXTRA_LH_BUTTONS))
-        ]
+        self.extra_lh_samples_num: list[int] = [0] * self.extra_lh_num
+        self.extra_lh_index_references: list[int] = [0] * self.extra_lh_num
         self.extra_lh_logs = []
-        self.extra_lh_index_references = [0] * self.extra_lh_num
 
     def compose(self) -> ComposeResult:
         """Compose the UI."""
@@ -154,7 +180,7 @@ class CalibrationApp(App):
                                                 for index in range(
                                                     0, self.extra_lh_num + 1
                                                 )
-                                                if index != lh + 1
+                                                if index < lh + 1
                                             ],
                                             value=0,
                                         )
@@ -216,16 +242,11 @@ class CalibrationApp(App):
     async def on_mount(self):
         """Initialize the serial connection."""
         self.save_calibration_button.disabled = True
-        self.data_log.write(
-            f"[green]Connected to {self.port} @ {self.baudrate} baud[/]"
-        )
-
-        self.read_task = asyncio.create_task(self.read_serial())
-        self.lh2_manager.text_log = self.data_log
-
-        # debug
-        # with open("/tmp/debug_counts.txt", "w") as debug_file:
-        #     debug_file.write("----- New Session -----\n")
+        if self.input_data is None:
+            self.data_log.write(
+                f"[green]Connected to {self.port} @ {self.baudrate} baud[/]"
+            )
+            self.read_task = asyncio.create_task(self.read_serial())
 
     def handle_received_payload(self, payload: bytes):
         """Handle a received frame."""
@@ -273,8 +294,16 @@ class CalibrationApp(App):
 
     def add_initial_calibration_point(self, point_id: str):
         """Add a calibration point."""
-        # debug
-        # self.last_counts[0] = TEST_CALIBRATION_COUNTS[BUTTONS[point_id].value]
+
+        if self.input_data is not None:
+            calibration_sample = self.calibration_samples[
+                BUTTONS[point_id].value
+            ]
+            self.last_counts[0] = LH2Counts(
+                lh_index=calibration_sample.lh_index,
+                count1=calibration_sample.count1,
+                count2=calibration_sample.count2,
+            )
 
         if self.last_counts[0] is None:
             self.app_log.write(
@@ -284,13 +313,18 @@ class CalibrationApp(App):
 
         counts = self.last_counts[0]
         self.last_counts[0] = None
-        self.calibration_counts[BUTTONS[point_id].value] = counts
 
-        # debug
-        # with open("/tmp/debug_counts.txt", "a") as debug_file:
-        #     debug_file.write(
-        #         f"LH0, point {BUTTONS[point_id].value}: {counts}\n"
-        #     )
+        if self.csv_writer is not None:
+            self.csv_writer.writerow(
+                [
+                    counts.lh_index,
+                    counts.count1,
+                    counts.count2,
+                    None,
+                    None,
+                    None,
+                ]
+            )
 
         BUTTONS[point_id].button.variant = "success"
         BUTTONS[point_id].data_set = True
@@ -313,29 +347,46 @@ class CalibrationApp(App):
 
     def add_extra_lh_point(self, lh_id: str):
         """Add a shared calibration point."""
+
         lh_index = EXTRA_LH_BUTTONS[lh_id].value
         ref_index = self.extra_lh_index_references[lh_index - 1]
 
-        # debug
-        # self.last_counts[ref_index] = LH2Counts(ref_index, 49341, 85887)
+        if self.input_data is not None:
+            samples = [
+                s for s in self.calibration_samples if s.lh_index == lh_index
+            ]
+            if self.extra_lh_samples_num[lh_index - 1] >= len(samples):
+                self.app_log.write(
+                    f"[red]Error: No more calibration samples available for LH{lh_index}.[/]"
+                )
+                return
+            sample = samples[self.extra_lh_samples_num[lh_index - 1]]
+            self.last_counts[lh_index] = LH2Counts(
+                lh_index=sample.lh_index,
+                count1=sample.count1,
+                count2=sample.count2,
+            )
+            self.last_counts[ref_index] = LH2Counts(
+                lh_index=sample.ref_lh_index,
+                count1=sample.ref_count1,
+                count2=sample.ref_count2,
+            )
 
         # Get reference counts from LH0
         ref_counts = self.last_counts[ref_index]
+        self.last_counts[ref_index] = None
         if ref_counts is None:
             self.app_log.write(
-                "[red]Error: No reference LH0 counts available. Cannot add calibration point.[/]"
+                "[red]Error: No reference LH counts available. Cannot add calibration sample.[/]"
             )
             return
-
-        # debug
-        # self.last_counts[lh_index] = LH2Counts(lh_index, 49341, 85887)
 
         # Get counts from extra lighthouse
         new_counts = self.last_counts[lh_index]
         self.last_counts[lh_index] = None
         if new_counts is None:
             self.app_log.write(
-                f"[red]Error: No new LH{lh_index} counts available. Cannot add calibration point.[/]"
+                f"[red]Error: No new LH{lh_index} counts available. Cannot add calibration sample.[/]"
             )
             return
 
@@ -346,22 +397,36 @@ class CalibrationApp(App):
             )
             return
 
-        counts_pair = LH2CountsPair(
-            ref_index=ref_index, ref_counts=ref_counts, new_counts=new_counts
+        sample = LH2CalibrationSample(
+            lh_index=lh_index,
+            count1=new_counts.count1,
+            count2=new_counts.count2,
+            ref_lh_index=ref_index,
+            ref_count1=ref_counts.count1,
+            ref_count2=ref_counts.count2,
         )
-        self.extra_lh_counts_pairs[lh_index - 1].append(counts_pair)
 
-        # debug
-        # with open("/tmp/debug_counts.txt", "a") as debug_file:
-        #     debug_file.write(
-        #         f"LH{EXTRA_LH_BUTTONS[lh_id].value}: {counts_pair}\n"
-        #     )
+        if self.input_data is None:
+            self.calibration_samples.append(sample)
 
-        calibration_count_len = len(self.extra_lh_counts_pairs[lh_index - 1])
+        if self.csv_writer is not None:
+            self.csv_writer.writerow(
+                [
+                    sample.lh_index,
+                    sample.count1,
+                    sample.count2,
+                    sample.ref_lh_index,
+                    sample.ref_count1,
+                    sample.ref_count2,
+                ]
+            )
+
+        self.extra_lh_samples_num[lh_index - 1] += 1
         self.extra_lh_logs[lh_index - 1].write(
-            f"[cyan]Calibration point added for LH{lh_index} (count: {calibration_count_len}).[/]"
+            f"[cyan]Calibration point {self.extra_lh_samples_num[lh_index - 1]} "
+            f"added for LH{lh_index} ({new_counts.count1}, {new_counts.count2}).[/]"
         )
-        if calibration_count_len >= 4:
+        if self.extra_lh_samples_num[lh_index - 1] >= 4:
             EXTRA_LH_BUTTONS[lh_id].button.variant = "success"
             EXTRA_LH_BUTTONS[lh_id].data_set = True
             next_lh_index = lh_index + 1
@@ -387,29 +452,20 @@ class CalibrationApp(App):
             button.data_set = False
             button.button.variant = "default"
             button.button.disabled = True
-        self.calibration_counts = [None] * 4
-        self.extra_lh_counts_pairs = [[], [], []]
+        self.calibration_samples = []
+        self.extra_lh_samples_num = [0] * self.extra_lh_num
+        self.extra_lh_index_references = [0] * self.extra_lh_num
         self.save_calibration_button.disabled = True
         self.app_log.write("[green]Calibration data reset.[/]")
 
     def save_calibration(self):
         """Save calibration data to file."""
         try:
-            self.lh2_manager.compute_calibration(
-                self.calibration_counts, self.extra_lh_counts_pairs
-            )
+            self.lh2_manager.compute_calibration(self.calibration_samples)
         except Exception as e:
             self.app_log.write(f"[red]Error computing calibration: {e}[/]")
             return
         try:
-            # debug
-            with open("/tmp/debug_calibration.txt", "w") as debug_file:
-                for index, homography in enumerate(
-                    self.lh2_manager.homographies
-                ):
-                    debug_file.write(
-                        f"Homography LH{index}:\n{homography.matrix}\n"
-                    )
             self.lh2_manager.save_calibration()
         except Exception as e:
             self.app_log.write(f"[red]Error saving calibration: {e}[/]")
@@ -419,6 +475,6 @@ class CalibrationApp(App):
 
     async def on_unmount(self):
         """Cleanup on app exit."""
-        if self.serial and self.serial.is_open:
+        if self.input_data is None and self.serial and self.serial.is_open:
             await asyncio.to_thread(self.serial.close)
             self.serial = None

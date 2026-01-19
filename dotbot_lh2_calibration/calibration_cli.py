@@ -55,7 +55,21 @@ LH_NUM_DEFAULT = 0
     type=click.IntRange(min=0, max=5),
     help="Extra lighthouse number to calibrate.",
 )
-def main(port, baudrate, extra_lh_num):  # pylint: disable=redefined-builtin
+@click.option(
+    '--output-data',
+    type=click.Path(file_okay=True, dir_okay=False, writable=True),
+    required=False,
+    help="Path to save calibration data.",
+)
+@click.option(
+    '--input-data',
+    type=click.Path(exists=True, readable=True),
+    required=False,
+    help="Path to load calibration data.",
+)
+def main(
+    port, baudrate, extra_lh_num, output_data, input_data
+):  # pylint: disable=redefined-builtin
     """Lighthouse calibration application."""
 
     # Configure structlog to suppress logs below CRITICAL level
@@ -64,7 +78,9 @@ def main(port, baudrate, extra_lh_num):  # pylint: disable=redefined-builtin
     )
 
     try:
-        CalibrationApp(port, baudrate, extra_lh_num).run()
+        CalibrationApp(
+            port, baudrate, extra_lh_num, output_data, input_data
+        ).run()
     except serial.serialutil.SerialException as exc:
         sys.exit(exc)
     except (SystemExit, KeyboardInterrupt):

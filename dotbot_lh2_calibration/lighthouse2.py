@@ -13,6 +13,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -67,13 +68,27 @@ class LH2Counts:
         return f"{dataclasses.asdict(self)}"
 
 
-@dataclasses.dataclass
-class LH2CountsPair:
-    """Pair of LH2 counts."""
+@dataclass
+class LH2CalibrationSample:
+    """Class that stores LH2 calibration data."""
 
-    ref_index: int
-    ref_counts: LH2Counts
-    new_counts: LH2Counts
+    lh_index: int
+    count1: int
+    count2: int
+    ref_lh_index: Optional[int] = None
+    ref_count1: Optional[int] = None
+    ref_count2: Optional[int] = None
+
+    def __post_init__(self):
+        self.lh_index = int(self.lh_index)
+        self.count1 = int(self.count1)
+        self.count2 = int(self.count2)
+        if self.ref_lh_index is not None:
+            self.ref_lh_index = int(self.ref_lh_index)
+        if self.ref_count1 is not None:
+            self.ref_count1 = int(self.ref_count1)
+        if self.ref_count2 is not None:
+            self.ref_count2 = int(self.ref_count2)
 
 
 def calculate_camera_point(count1, count2, poly_in):
@@ -102,9 +117,9 @@ def camera_points_from_counts(counts: list[LH2Counts]) -> np.ndarray:
     for index, count in enumerate(counts):
         camera_points[index] = np.asarray(
             calculate_camera_point(
-                count.count1,
-                count.count2,
-                count.lh_index,
+                int(count.count1),
+                int(count.count2),
+                int(count.lh_index),
             ),
             dtype=np.float64,
         )
@@ -124,7 +139,7 @@ def compute_homography_matrix(
     )
 
     if M is None:
-        raise ValueError("No valid homography matrix found.")
+        raise ValueError("Cannot find a valid homography matrix.")
 
     return M
 
@@ -197,24 +212,27 @@ class LighthouseManager:
         return LH2Homography(matrix=homography)
 
     def _compute_extra_calibration(
-        self, counts_pairs: list[LH2CountsPair]
+        self, samples: list[LH2CalibrationSample]
     ) -> LH2Homography:
         """Compute the extra lighthouse calibration values and matrices."""
 
         print(
-            f"ref: {counts_pairs[0].ref_index}, homographies: {self.homographies}"
+            f"ref: {samples[0].ref_lh_index}, homographies: {self.homographies}"
         )
 
         # Convert reference counts to camera points
         ref_camera_points = camera_points_from_counts(
-            [pair.ref_counts for pair in counts_pairs]
+            [
+                LH2Counts(s.ref_lh_index, s.ref_count1, s.ref_count2)
+                for s in samples
+            ]
         )
 
         print(f"ref_camera_points: {ref_camera_points}")
 
         # Convert reference camera points to ground plane coordinates using reference homography
         ref_coordinates = apply_homography(
-            self.homographies[counts_pairs[0].ref_index].matrix,
+            self.homographies[samples[0].ref_lh_index].matrix,
             ref_camera_points,
         )
 
@@ -222,7 +240,7 @@ class LighthouseManager:
 
         # Convert new LH counts to new camera points
         new_camera_points = camera_points_from_counts(
-            [pair.new_counts for pair in counts_pairs]
+            [LH2Counts(s.lh_index, s.count1, s.count2) for s in samples]
         )
 
         print(f"new_camera_points: {new_camera_points}")
@@ -233,29 +251,47 @@ class LighthouseManager:
             ref_coordinates,
         )
 
+        # Project camera points using computed homography for verification
+        ref_coordinates = apply_homography(homography, new_camera_points)
+
+        # compare with reference points
+        for i, ref_point in enumerate(REFERENCE_POINTS_DEFAULT):
+            if not np.allclose(ref_coordinates[i], ref_point, atol=1e-3):
+                raise ValueError(
+                    f"Projected point {ref_coordinates[i]} does not match reference point {ref_point}"
+                )
+
         print(f"Computed homography: {homography}")
 
         return LH2Homography(matrix=homography)
 
     def compute_calibration(
         self,
-        calibration_counts: list[LH2Counts],
-        extra_lh_counts_pairs: list[list[LH2CountsPair]],
+        calibration_samples: list[LH2CalibrationSample],
     ) -> list[LH2Homography]:
         """Compute the calibration values and matrices."""
+        reference_counts = [
+            LH2Counts(s.lh_index, s.count1, s.count2)
+            for s in calibration_samples
+            if s.lh_index == 0
+        ]
         self.homographies[0] = self._compute_reference_homography(
-            calibration_counts
+            reference_counts
         )
 
         print(
             f"Computing {self.extra_lh_num} extra lighthouse calibrations..."
         )
         if self.extra_lh_num > 0:
-            for lh_index, counts_pairs in enumerate(
-                extra_lh_counts_pairs[: self.extra_lh_num]
-            ):
+            for lh_index in range(self.extra_lh_num):
+                print(f"Computing calibration for LH{lh_index + 1}")
+                samples = [
+                    s
+                    for s in calibration_samples
+                    if s.lh_index == lh_index + 1
+                ]
                 self.homographies[lh_index + 1] = (
-                    self._compute_extra_calibration(counts_pairs)
+                    self._compute_extra_calibration(samples)
                 )
 
     def load_calibration(self) -> bytes:
