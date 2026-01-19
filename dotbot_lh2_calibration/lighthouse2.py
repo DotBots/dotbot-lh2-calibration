@@ -294,18 +294,24 @@ class LighthouseManager:
                     self._compute_extra_calibration(samples)
                 )
 
-    def load_calibration(self) -> bytes:
+    def load_calibration(self) -> list[bytes]:
         if not os.path.exists(self.calibration_output_path):
             return None
+        homographies_bytes = []
         with open(self.calibration_output_path, "rb") as calibration_file:
-            homography_matrix = calibration_file.read(36)
-        return homography_matrix
+            homographies_num = int.from_bytes(
+                calibration_file.read(1), "little", signed=False
+            )
+            for _ in range(homographies_num):
+                homography_matrix = calibration_file.read(36)
+                homographies_bytes.append(homography_matrix)
+        return homographies_bytes
 
     def save_calibration(self) -> None:
         """Save the calibration to a file."""
         with open(self.calibration_output_path, "wb") as calibration_file:
-            for index, homography in enumerate(self.homographies):
-                calibration_file.write(
-                    int(index).to_bytes(4, "little", signed=False)
-                )
+            calibration_file.write(
+                int(1 + self.extra_lh_num).to_bytes(1, "little", signed=False)
+            )
+            for homography in self.homographies:
                 calibration_file.write(homography_as_bytes(homography.matrix))

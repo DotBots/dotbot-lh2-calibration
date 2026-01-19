@@ -22,7 +22,6 @@ CALIBRATION_HEADER_HEADER = """// Auto-generated file, do not edit!
 
 #define LH2_CALIBRATION_IS_VALID    (1)
 
-static int32_t swrmt_homography[3][3] = {
 """
 
 CALIBRATION_HEADER_FOOTER = """};
@@ -31,17 +30,24 @@ CALIBRATION_HEADER_FOOTER = """};
 """
 
 
-def export_calibration(calibration: bytes) -> str:
+def export_calibration(calibrations: list[bytes]) -> str:
     """Export the calibration file to a user-defined location."""
     # Store homography matrix as C header to use in SwarmIT bootloader
     output = CALIBRATION_HEADER_HEADER
-    matrix_int = [
-        int.from_bytes(calibration[i : i + 4], "little", signed=True)
-        for i in range(0, 36, 4)
-    ]
-    matrix = [matrix_int[i : i + 3] for i in range(0, 9, 3)]
-    for row in matrix:
-        output += "    {" + ", ".join(str(v) for v in row) + "},\n"
+    output += (
+        f"static int32_t swrmt_homography[{len(calibrations)}][3][3] = {{\n"
+    )
+
+    for calibration in calibrations:
+        output += "    {\n"
+        matrix_int = [
+            int.from_bytes(calibration[i : i + 4], "little", signed=True)
+            for i in range(0, 36, 4)
+        ]
+        matrix = [matrix_int[i : i + 3] for i in range(0, 9, 3)]
+        for row in matrix:
+            output += "        {" + ", ".join(str(v) for v in row) + "},\n"
+        output += "    },\n"
     output += CALIBRATION_HEADER_FOOTER
     return output
 
@@ -64,9 +70,9 @@ def main(output_path):
         print("Error: Lighthouse is not calibrated.", file=sys.stderr)
         sys.exit(1)
 
-    calibration = lh2_manager.load_calibration()
+    calibrations = lh2_manager.load_calibration()
     try:
-        output = export_calibration(calibration)
+        output = export_calibration(calibrations)
         header_path = Path(output_path) / CALIBRATION_HEADER_FILENAME
         with open(header_path, "w") as header_file:
             header_file.write(output)
