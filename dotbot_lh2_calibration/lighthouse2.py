@@ -18,15 +18,14 @@ from typing import Optional
 import cv2
 import numpy as np
 
-REFERENCE_POINTS_DEFAULT = [
-    [0.4, 0.6],
-    [0.6, 0.6],
-    [0.4, 0.4],
-    [0.6, 0.4],
-]
+
 CALIBRATION_DIR = Path.home() / ".dotbot"
-
-
+REFERENCE_POINTS_DEFAULT = [
+    [0.4, 0.4],  # Top-left
+    [0.6, 0.4],  # Top-right
+    [0.4, 0.6],  # Bottom-left
+    [0.6, 0.6],  # Bottom-right
+]
 LH_PERIODS = [
     959000,  # mode 1
     957000,  # mode 2
@@ -248,7 +247,7 @@ class LighthouseManager:
         ref_coordinates = apply_homography(homography, new_camera_points)
 
         # compare with reference points
-        for i, ref_point in enumerate(REFERENCE_POINTS_DEFAULT):
+        for i, ref_point in enumerate(ref_coordinates):
             if not np.allclose(ref_coordinates[i], ref_point, atol=1e-3):
                 raise ValueError(
                     f"Projected point {ref_coordinates[i]} does not match reference point {ref_point}"

@@ -111,7 +111,7 @@ class CalibrationApp(App):
         self.extra_lh_num = extra_lh_num
         self.output_data = output_data
         self.input_data = input_data
-        self.calibration_samples: list[LH2CalibrationSample] = []
+        self.calibration_samples: list[LH2CalibrationSample] = [None] * 4
         if self.input_data is not None:
             self.calibration_samples = read_calibration_data_from_csv(
                 self.input_data
@@ -318,6 +318,13 @@ class CalibrationApp(App):
 
         counts = self.last_counts[0]
         self.last_counts[0] = None
+
+        if self.input_data is None:
+            self.calibration_samples[BUTTONS[point_id].value] = LH2CalibrationSample(
+                lh_index=counts.lh_index,
+                count1=counts.count1,
+                count2=counts.count2,
+            )
 
         if self.csv_writer is not None:
             self.csv_writer.writerow(
