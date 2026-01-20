@@ -267,7 +267,12 @@ class CalibrationApp(App):
                 payload[5:9], byteorder="little", signed=False
             ),
         )
-        self.data_log.write(f"[cyan]Counts received: {counts}[/]")
+        message = f"[cyan]Counts received: {counts}"
+        if self.lh2_manager.has_calibration(counts.lh_index):
+            coords = self.lh2_manager.ground_coordinate_from_counts(counts)
+            message += f" -> coords: ({coords[0]:.2f}, {coords[1]:.2f})"
+        message += "[/]"
+        self.data_log.write(message)
         self.last_counts[counts.lh_index] = counts
 
     def on_byte_received(self, byte: bytes):
@@ -307,7 +312,7 @@ class CalibrationApp(App):
 
         if self.last_counts[0] is None:
             self.app_log.write(
-                "[red]Error: No LH2 counts available. Cannot add calibration point.[/]"
+                "[red]Error: No LH2 counts available, cannot add calibration point[/]"
             )
             return
 
@@ -329,19 +334,19 @@ class CalibrationApp(App):
         BUTTONS[point_id].button.variant = "success"
         BUTTONS[point_id].data_set = True
         self.app_log.write(
-            f"[cyan]Calibration point {BUTTONS[point_id].value} added ({counts.count1}, {counts.count2}).[/]"
+            f"[cyan]Calibration point {BUTTONS[point_id].value} added for LH0 ({counts.count1}, {counts.count2}).[/]"
         )
         if all(button.data_set for button in BUTTONS.values()):
             if self.extra_lh_num > 0:
                 self.app_log.write(
-                    "[yellow]All initial calibration points set.\n"
-                    "Proceed to extra lighthouse calibration.[/]"
+                    "[yellow]All initial calibration points set, "
+                    f"proceed to the {self.extra_lh_num} other lighthouses calibration[/]"
                 )
                 EXTRA_LH_BUTTONS["lh1"].button.disabled = False
             else:
                 self.app_log.write(
-                    "[green]All calibration points set.\n"
-                    "Ready to save calibration.[/]"
+                    "[green]All calibration points set, "
+                    "ready to save calibration.[/]"
                 )
                 self.save_calibration_button.disabled = False
 
@@ -357,7 +362,7 @@ class CalibrationApp(App):
             ]
             if self.extra_lh_samples_num[lh_index - 1] >= len(samples):
                 self.app_log.write(
-                    f"[red]Error: No more calibration samples available for LH{lh_index}.[/]"
+                    f"[red]Error: No more calibration samples available for LH{lh_index}[/]"
                 )
                 return
             sample = samples[self.extra_lh_samples_num[lh_index - 1]]
@@ -377,7 +382,7 @@ class CalibrationApp(App):
         self.last_counts[ref_index] = None
         if ref_counts is None:
             self.app_log.write(
-                "[red]Error: No reference LH counts available. Cannot add calibration sample.[/]"
+                "[red]Error: No reference LH counts available, cannot add calibration sample[/]"
             )
             return
 
@@ -386,7 +391,7 @@ class CalibrationApp(App):
         self.last_counts[lh_index] = None
         if new_counts is None:
             self.app_log.write(
-                f"[red]Error: No new LH{lh_index} counts available. Cannot add calibration sample.[/]"
+                f"[red]Error: No new LH{lh_index} counts available, cannot add calibration sample[/]"
             )
             return
 
@@ -422,9 +427,9 @@ class CalibrationApp(App):
             )
 
         self.extra_lh_samples_num[lh_index - 1] += 1
-        self.extra_lh_logs[lh_index - 1].write(
+        self.app_log.write(
             f"[cyan]Calibration point {self.extra_lh_samples_num[lh_index - 1]} "
-            f"added for LH{lh_index} ({new_counts.count1}, {new_counts.count2}).[/]"
+            f"added for LH{lh_index} ({new_counts.count1}, {new_counts.count2})[/]"
         )
         if self.extra_lh_samples_num[lh_index - 1] >= 4:
             EXTRA_LH_BUTTONS[lh_id].button.variant = "success"
@@ -433,13 +438,15 @@ class CalibrationApp(App):
             if next_lh_index <= self.extra_lh_num:
                 next_btn_id = f"lh{next_lh_index}"
                 EXTRA_LH_BUTTONS[next_btn_id].button.disabled = False
+            self.app_log.write(
+                f"[green]LH{lh_index} calibration ready, proceed to LH{next_lh_index}[/]"
+            )
         if all(
             button.data_set
             for button in list(EXTRA_LH_BUTTONS.values())[: self.extra_lh_num]
         ):
             self.app_log.write(
-                "[green]All extra calibration points set.\n"
-                "Ready to save calibration.[/]"
+                "[green]All additional calibration points set, ready to save calibration[/]"
             )
             self.save_calibration_button.disabled = False
 
@@ -456,7 +463,7 @@ class CalibrationApp(App):
         self.extra_lh_samples_num = [0] * self.extra_lh_num
         self.extra_lh_index_references = [0] * self.extra_lh_num
         self.save_calibration_button.disabled = True
-        self.app_log.write("[green]Calibration data reset.[/]")
+        self.app_log.write("[green]Calibration data reset[/]")
 
     def save_calibration(self):
         """Save calibration data to file."""
@@ -471,7 +478,7 @@ class CalibrationApp(App):
             self.app_log.write(f"[red]Error saving calibration: {e}[/]")
             return
 
-        self.app_log.write("[green]Calibration data saved.[/]")
+        self.app_log.write("[green]Calibration data saved[/]")
 
     async def on_unmount(self):
         """Cleanup on app exit."""

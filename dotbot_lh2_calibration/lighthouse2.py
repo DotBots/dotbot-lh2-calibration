@@ -91,15 +91,15 @@ class LH2CalibrationSample:
             self.ref_count2 = int(self.ref_count2)
 
 
-def calculate_camera_point(count1, count2, poly_in):
+def calculate_camera_point(counts: LH2Counts) -> np.ndarray:
     """Calculate camera points from counts."""
-    period = LH_PERIODS[poly_in]
+    period = LH_PERIODS[counts.lh_index]
 
-    a1 = (count1 * 8 / period) * 2 * math.pi
-    a2 = (count2 * 8 / period) * 2 * math.pi
+    a1 = (counts.count1 * 8 / period) * 2 * math.pi
+    a2 = (counts.count2 * 8 / period) * 2 * math.pi
 
     cam_x = -math.tan(0.5 * (a1 + a2))
-    if count1 < count2:
+    if counts.count1 < counts.count2:
         cam_y = -math.sin(a2 / 2 - a1 / 2 - 60 * math.pi / 180) / math.tan(
             math.pi / 6
         )
@@ -108,21 +108,14 @@ def calculate_camera_point(count1, count2, poly_in):
             math.pi / 6
         )
 
-    return cam_x, cam_y
+    return np.asarray([cam_x, cam_y], dtype=np.float64)
 
 
 def camera_points_from_counts(counts: list[LH2Counts]) -> np.ndarray:
     """Convert counts to camera points."""
     camera_points = np.zeros((len(counts), 2), dtype=np.float64)
     for index, count in enumerate(counts):
-        camera_points[index] = np.asarray(
-            calculate_camera_point(
-                int(count.count1),
-                int(count.count2),
-                int(count.lh_index),
-            ),
-            dtype=np.float64,
-        )
+        camera_points[index] = calculate_camera_point(count)
     return camera_points
 
 
@@ -294,6 +287,12 @@ class LighthouseManager:
                     self._compute_extra_calibration(samples)
                 )
 
+    def has_calibration(self, lh_index) -> bool:
+        """Check if calibration is available for a given lighthouse index."""
+        return len(self.homographies) > lh_index and not np.all(
+            self.homographies[lh_index].matrix == 0
+        )
+
     def load_calibration(self) -> list[bytes]:
         if not os.path.exists(self.calibration_output_path):
             return None
@@ -315,3 +314,14 @@ class LighthouseManager:
             )
             for homography in self.homographies:
                 calibration_file.write(homography_as_bytes(homography.matrix))
+
+    def ground_coordinate_from_counts(self, counts: LH2Counts) -> np.ndarray:
+        """Convert counts to ground plane coordinates using homography."""
+        # Convert counts to camera points
+        camera_points = np.zeros((1, 2), dtype=np.float64)
+        camera_points[0] = calculate_camera_point(counts)
+
+        # Apply homography to get ground plane coordinates
+        return apply_homography(
+            self.homographies[counts.lh_index].matrix, camera_points
+        )[0]
