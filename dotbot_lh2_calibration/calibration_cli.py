@@ -16,6 +16,7 @@ import structlog
 from serial.tools import list_ports
 
 from dotbot_lh2_calibration.calibration_app import CalibrationApp
+from dotbot_lh2_calibration.lighthouse2 import CALIBRATION_DISTANCE_DEFAULT
 
 
 def get_default_port():
@@ -49,6 +50,13 @@ LH_NUM_DEFAULT = 0
     help=f"Serial baudrate used by 'serial' and 'edge' adapters. Defaults to {SERIAL_BAUDRATE_DEFAULT}",
 )
 @click.option(
+    "-d",
+    "--distance",
+    default=CALIBRATION_DISTANCE_DEFAULT,
+    type=int,
+    help="Distance between reference calibration points in millimeters.",
+)
+@click.option(
     "-n",
     "--extra-lh-num",
     default=LH_NUM_DEFAULT,
@@ -68,7 +76,7 @@ LH_NUM_DEFAULT = 0
     help="Path to load calibration data.",
 )
 def main(
-    port, baudrate, extra_lh_num, output_data, input_data
+    port, baudrate, distance, extra_lh_num, output_data, input_data
 ):  # pylint: disable=redefined-builtin
     """Lighthouse calibration application."""
 
@@ -79,7 +87,7 @@ def main(
 
     try:
         CalibrationApp(
-            port, baudrate, extra_lh_num, output_data, input_data
+            port, baudrate, distance, extra_lh_num, output_data, input_data
         ).run()
     except serial.serialutil.SerialException as exc:
         sys.exit(exc)

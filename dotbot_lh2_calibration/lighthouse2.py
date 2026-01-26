@@ -18,8 +18,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
-
 CALIBRATION_DIR = Path.home() / ".dotbot"
+CALIBRATION_DISTANCE_DEFAULT = 500  # in millimeters
 REFERENCE_POINTS_DEFAULT = [
     [0.4, 0.4],  # Top-left
     [0.6, 0.4],  # Top-right
@@ -156,7 +156,7 @@ def homography_as_bytes(matrix: np.ndarray) -> bytes:
     matrix_bytes = bytearray()
     try:
         for bytes_block in [
-            int(n * 1e6).to_bytes(4, "little", signed=True)
+            int(n * 1e3).to_bytes(4, "little", signed=True)
             for n in matrix.ravel()
         ]:
             matrix_bytes += bytes_block
@@ -168,9 +168,14 @@ def homography_as_bytes(matrix: np.ndarray) -> bytes:
 class LighthouseManager:
     """Class to manage the LightHouse positionning state and workflow."""
 
-    def __init__(self, extra_lh_num: int = 0):
+    def __init__(
+        self,
+        calibration_distance: float = CALIBRATION_DISTANCE_DEFAULT,
+        extra_lh_num: int = 0,
+    ):
         Path.mkdir(CALIBRATION_DIR, exist_ok=True)
         self.calibration_output_path = CALIBRATION_DIR / "calibration.out"
+        self.calibration_distance = calibration_distance
         self.extra_lh_num = extra_lh_num
         self.homographies: list[LH2Homography] = [LH2Homography()] * (
             1 + self.extra_lh_num
@@ -183,10 +188,14 @@ class LighthouseManager:
         # Convert reference counts to camera view points
         camera_points = camera_points_from_counts(calibration_counts)
 
+        reference_points = np.array(REFERENCE_POINTS_DEFAULT, dtype=np.float64)
+        # Scale reference points according to calibration distance
+        reference_points *= self.calibration_distance * 5
+
         # Compute homography from camera points to ground plane coordinates
         homography = compute_homography_matrix(
             camera_points,
-            np.array(REFERENCE_POINTS_DEFAULT, dtype=np.float64),
+            reference_points,
         )
 
         print(f"reference homography: {homography}")
@@ -195,7 +204,7 @@ class LighthouseManager:
         ref_coordinates = apply_homography(homography, camera_points)
 
         # compare with reference points
-        for i, ref_point in enumerate(REFERENCE_POINTS_DEFAULT):
+        for i, ref_point in enumerate(reference_points):
             if not np.allclose(ref_coordinates[i], ref_point, atol=1e-3):
                 raise ValueError(
                     f"Projected point {ref_coordinates[i]} does not match reference point {ref_point}"
@@ -294,7 +303,7 @@ class LighthouseManager:
 
     def load_calibration(self) -> list[bytes]:
         if not os.path.exists(self.calibration_output_path):
-            return None
+            return []
         homographies_bytes = []
         with open(self.calibration_output_path, "rb") as calibration_file:
             homographies_num = int.from_bytes(

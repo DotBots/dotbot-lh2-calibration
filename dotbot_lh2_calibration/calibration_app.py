@@ -103,7 +103,13 @@ class CalibrationApp(App):
     CSS_PATH = "calibration_app.tcss"
 
     def __init__(
-        self, port, baudrate, extra_lh_num, output_data=None, input_data=None
+        self,
+        port,
+        baudrate,
+        distance,
+        extra_lh_num,
+        output_data=None,
+        input_data=None,
     ):
         super().__init__()
         self.port = port
@@ -125,7 +131,9 @@ class CalibrationApp(App):
             self.csv_writer = csv.writer(output_data_file)
 
         self.hdlc_handler = HDLCHandler()
-        self.lh2_manager = LighthouseManager(extra_lh_num=self.extra_lh_num)
+        self.lh2_manager = LighthouseManager(
+            calibration_distance=distance, extra_lh_num=self.extra_lh_num
+        )
         self.data_log = None
         self.app_log = None
         self.save_calibration_button = None
@@ -320,10 +328,12 @@ class CalibrationApp(App):
         self.last_counts[0] = None
 
         if self.input_data is None:
-            self.calibration_samples[BUTTONS[point_id].value] = LH2CalibrationSample(
-                lh_index=counts.lh_index,
-                count1=counts.count1,
-                count2=counts.count2,
+            self.calibration_samples[BUTTONS[point_id].value] = (
+                LH2CalibrationSample(
+                    lh_index=counts.lh_index,
+                    count1=counts.count1,
+                    count2=counts.count2,
+                )
             )
 
         if self.csv_writer is not None:

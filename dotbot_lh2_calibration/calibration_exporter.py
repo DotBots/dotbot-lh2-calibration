@@ -21,7 +21,6 @@ CALIBRATION_HEADER_HEADER = """// Auto-generated file, do not edit!
 #include "localization.h"
 
 #define LH2_CALIBRATION_IS_VALID    (1)
-
 """
 
 CALIBRATION_HEADER_FOOTER = """};
@@ -34,8 +33,9 @@ def export_calibration(calibrations: list[bytes]) -> str:
     """Export the calibration file to a user-defined location."""
     # Store homography matrix as C header to use in SwarmIT bootloader
     output = CALIBRATION_HEADER_HEADER
+    output += f"#define LH2_CALIBRATION_COUNT       ({len(calibrations)})\n\n"
     output += (
-        f"static int32_t swrmt_homography[{len(calibrations)}][3][3] = {{\n"
+        "static int32_t swrmt_homographies[LH2_CALIBRATION_COUNT][3][3] = {\n"
     )
 
     for calibration in calibrations:
@@ -62,15 +62,18 @@ def main(output_path):
     )
 
     if not os.path.exists(output_path):
-        print(f"Error: '{output_path}' doesn't exist.", file=sys.stderr)
+        print(f"Error: '{output_path}' doesn't exist", file=sys.stderr)
         sys.exit(1)
 
     lh2_manager = LighthouseManager()
     if not os.path.exists(lh2_manager.calibration_output_path):
-        print("Error: Lighthouse is not calibrated.", file=sys.stderr)
+        print("Error: Lighthouse is not calibrated", file=sys.stderr)
         sys.exit(1)
 
     calibrations = lh2_manager.load_calibration()
+    if not calibrations:
+        print("Error: No calibration data found", file=sys.stderr)
+        sys.exit(1)
     try:
         output = export_calibration(calibrations)
         header_path = Path(output_path) / CALIBRATION_HEADER_FILENAME
