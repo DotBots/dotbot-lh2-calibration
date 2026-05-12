@@ -275,6 +275,21 @@ class CalibrationApp(App):
                 payload[5:9], byteorder="little", signed=False
             ),
         )
+
+        # The firmware reports counts for every LH it sees, including ones
+        # outside the configured calibration range (other base stations in
+        # the room, sunlight-induced false LFSR matches). Drop those —
+        # they would crash the fixed-size last_counts list and they have
+        # no use here anyway.
+        if counts.lh_index > self.extra_lh_num or counts.lh_index >= len(
+            self.last_counts
+        ):
+            self.data_log.write(
+                f"[dim]Ignoring counts for LH{counts.lh_index} "
+                f"(outside configured range 0..{self.extra_lh_num})[/]"
+            )
+            return
+
         message = f"[cyan]Counts received: {counts}"
         if self.lh2_manager.has_calibration(counts.lh_index):
             coords = self.lh2_manager.ground_coordinate_from_counts(counts)
@@ -301,7 +316,7 @@ class CalibrationApp(App):
                 if byte:
                     self.on_byte_received(byte)
             except Exception as e:
-                self.data_log.write, f"[red]Error reading serial port : {e}[/]"
+                self.data_log.write(f"[red]Error reading serial port: {e}[/]")
                 break
         await self.action_quit()
 
