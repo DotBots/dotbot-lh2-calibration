@@ -93,6 +93,18 @@ def main(
         sys.exit(exc)
     except (SystemExit, KeyboardInterrupt):
         sys.exit(0)
+    except Exception:
+        # Anything else: the Textual TUI swallows exceptions raised in its
+        # event loop. Print the traceback to stderr (visible after teardown)
+        # *and* tee to the calibration log file.
+        import traceback as _tb
+        _tb.print_exc()
+        try:
+            from dotbot_lh2_calibration.calibration_app import _CALIB_LOGGER
+            _CALIB_LOGGER.exception("CalibrationApp crashed")
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":
