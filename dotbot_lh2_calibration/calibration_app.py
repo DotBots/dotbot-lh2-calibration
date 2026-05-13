@@ -519,7 +519,7 @@ class CalibrationApp(App):
             button.data_set = False
             button.button.variant = "default"
             button.button.disabled = True
-        self.calibration_samples = []
+        self.calibration_samples = [None] * 4
         self.extra_lh_samples_num = [0] * self.extra_lh_num
         self.extra_lh_index_references = [0] * self.extra_lh_num
         self.save_calibration_button.disabled = True
