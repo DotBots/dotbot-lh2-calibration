@@ -1,6 +1,8 @@
 import asyncio
 import csv
 import dataclasses
+import logging
+import traceback
 
 import serial
 from dotbot_utils.hdlc import HDLCHandler, HDLCState
@@ -17,10 +19,36 @@ from textual.widgets import (
 )
 
 from dotbot_lh2_calibration.lighthouse2 import (
+    CALIBRATION_DIR,
     LH2CalibrationSample,
     LH2Counts,
     LighthouseManager,
 )
+
+# Tracebacks from inside the Textual TUI don't make it to the terminal,
+# so we tee everything we'd want to see to a file under CALIBRATION_DIR
+# (~/.dotbot/), the same directory that already holds the calibration
+# output. Predictable location for pip-installed users (no dependency on
+# the cwd they ran the command from).
+_CALIB_LOG_PATH = CALIBRATION_DIR / "calibration.log"
+CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
+_CALIB_LOGGER = logging.getLogger("dotbot_lh2_calibration")
+if not _CALIB_LOGGER.handlers:
+    _h = logging.FileHandler(_CALIB_LOG_PATH, mode="a")
+    _h.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    _CALIB_LOGGER.addHandler(_h)
+    _CALIB_LOGGER.setLevel(logging.DEBUG)
+    _CALIB_LOGGER.propagate = False  # avoid feedback through structlog
+
+
+def _log_exception(target_log, message: str, exc: Exception) -> None:
+    # Must be called from inside an except: block — reads the active traceback.
+    target_log.write(f"[red]{message}: {exc}[/]")
+    for line in traceback.format_exc().rstrip().splitlines():
+        target_log.write(f"[red]{line}[/]")
+    _CALIB_LOGGER.exception(message)
 
 
 @dataclasses.dataclass
@@ -275,6 +303,20 @@ class CalibrationApp(App):
                 payload[5:9], byteorder="little", signed=False
             ),
         )
+
+        # The firmware reports counts for every LH it sees, including ones
+        # outside the configured calibration range (other base stations in
+        # the room). Drop those — they would crash the fixed-size
+        # last_counts list and they have no use here anyway.
+        if counts.lh_index > self.extra_lh_num or counts.lh_index >= len(
+            self.last_counts
+        ):
+            self.data_log.write(
+                f"[dim]Ignoring counts for LH{counts.lh_index} "
+                f"(outside configured range 0..{self.extra_lh_num})[/]"
+            )
+            return
+
         message = f"[cyan]Counts received: {counts}"
         if self.lh2_manager.has_calibration(counts.lh_index):
             coords = self.lh2_manager.ground_coordinate_from_counts(counts)
@@ -289,7 +331,8 @@ class CalibrationApp(App):
         if self.hdlc_handler.state == HDLCState.READY:
             try:
                 data = self.hdlc_handler.payload
-            except Exception as _:
+            except Exception:
+                _CALIB_LOGGER.exception("HDLC payload extraction failed")
                 return
             self.handle_received_payload(data)
 
@@ -301,7 +344,7 @@ class CalibrationApp(App):
                 if byte:
                     self.on_byte_received(byte)
             except Exception as e:
-                self.data_log.write, f"[red]Error reading serial port : {e}[/]"
+                _log_exception(self.data_log, "Error reading serial port", e)
                 break
         await self.action_quit()
 
@@ -487,12 +530,12 @@ class CalibrationApp(App):
         try:
             self.lh2_manager.compute_calibration(self.calibration_samples)
         except Exception as e:
-            self.app_log.write(f"[red]Error computing calibration: {e}[/]")
+            _log_exception(self.app_log, "Error computing calibration", e)
             return
         try:
             self.lh2_manager.save_calibration()
         except Exception as e:
-            self.app_log.write(f"[red]Error saving calibration: {e}[/]")
+            _log_exception(self.app_log, "Error saving calibration", e)
             return
 
         self.app_log.write("[green]Calibration data saved[/]")
