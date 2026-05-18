@@ -1,5 +1,20 @@
 # dotbot-lh2-calibration
 
+> **The Python side of this package is deprecated as of 2026-05** and
+> has been folded into the unified
+> [`dotbot`](https://github.com/DotBots/PyDotBot) package. Migrate
+> with:
+>
+> ```bash
+> pip install dotbot[calibrate]
+> dotbot calibrate           # the Textual TUI (formerly dotbot-calibration)
+> dotbot calibrate export    # the C-header exporter
+> ```
+>
+> The C firmware in `calibration/` is **unaffected** and continues to
+> live here. The standalone Python package will be archived after a
+> 6-month grace period (around 2026-11).
+
 Utilities for Lighthouse v2 calibration in the DotBot ecosystem.
 
 ## Description
